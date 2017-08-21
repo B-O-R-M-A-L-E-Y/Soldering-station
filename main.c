@@ -1,127 +1,92 @@
 #define F_CPU 8000000
+#define BAUDRATE 9600
 
 #include <avr/io.h>
-#include <util/delay.h>
-#include <stdint.h>
-
-#include "pid.h"
+#include <stdlib.h>
 #include "macros.h"
 #include "encoder.h"
+#include "util/delay.h"
 
-#define SOUND_ON OCR0B=64
-#define SOUND_OFF OCR0B=0
 
-#define Prop_FACTOR 4
-#define Diff_FACTOR 0
-#define Integ_FACTOR 0
-struct PID_DATA* REGULATOR_DATA;
+volatile unsigned int set_temp=40;
 
-uint16_t set_temp=250;
-uint16_t current_temp=20;
-float vol_to_temp = 55; //????
-char is_heated_first_time = 1;
+//void init_pwm();
+void init_uart();
 
-/*TODO
-Раскидать функции в заголовочные файлы
-Настроить библиотеку дисплея
-Настроить АЦП в соответствии с напряжением термопары и передачей через ОУ
-*/
-
-void init_all();
-void init_adc(); // ADC0 on PC0
-void init_pwm(); // OC0A on PD6
-void init_pwm_sound(); // OC0B on PD5 !!Make sure it runs AFTER init_pwm func
-
-float do_adc_convertion();
-void start_pwm_duty(uint8_t);
 void do_encoder_scan();
-void pwm_control();
+void uart_send_symbol(unsigned char);
+void uart_send_string(char*);
+uint8_t uart_recieve_symbol();
 
-int main()
+char UART_SYMBOL_BUFFER;
+char UART_STRING_BUFFER[5];
+
+int main(void)
 {
-  init_all();
-  do_encoder_scan();
-  pwm_control();
+  //init_pwm();
+  init_encoder();
+  init_uart();
+  while (1)
+  {
+    do_encoder_scan();
+    uart_send_string("OKDA\n");
+    uart_send_string(itoa(set_temp, UART_STRING_BUFFER, 10));
+    uart_send_symbol(13);
+  }
 }
 
 /* ----------------------------------------------------------------------------
 -------------------------------- INIT BLOCK -----------------------------------
 ---------------------------------------------------------------------------- */
 
-// configure all ports & timers
-void init_all()
-{
-  init_pwm();
-  init_pwm_sound();
-  SOUND_ON;
-  init_adc();
-  init_encoder(); // Check define
-  pid_Init(Prop_FACTOR, Integ_FACTOR, Diff_FACTOR, REGULATOR_DATA);
-  SOUND_OFF;
-}
-
-void init_adc()
-{
-  CLEAR_BIT(DDRC, DDC0); // Configure PC0 as Input Hi-Z
-  CLEAR_REG(ADMUX);
-  CLEAR_BIT(ADMUX,MUX0); //set ADC input ADC0
-  CLEAR_BIT(ADMUX,MUX1);
-  CLEAR_BIT(ADMUX,MUX2);
-  CLEAR_BIT(ADMUX,MUX3);
-  SET_BIT(ADMUX, REFS0); // enable AVcc reference with ext capacitor at AREF
-  CLEAR_REG(ADCSRA);
-  CLEAR_BIT(ADCSRA, ADPS0); //set ADC prescaler = 4
-  SET_BIT(ADCSRA, ADPS1);
-  CLEAR_BIT(ADCSRA, ADPS2);
-  SET_BIT(ADCSRA, ADEN); //enable ADC
-}
-
 void init_pwm()
 {
   SET_BIT(DDRD, DDD6); // Configure PD6 as Output
+  SET_BIT(TCCR0A, COM0A1); // Clear OC0A at Compare match, set at Bottom
+  CLEAR_BIT(TCCR0A, COM0A0); // Non-inverting mode
   SET_BIT(TCCR0A, WGM00); // Configure Fast PWM Waveform Generation Mode
   SET_BIT(TCCR0A, WGM01); // Top=0xFF, Update at BOTTOM
   CLEAR_BIT(TCCR0B, WGM02);
-  SET_BIT(TCCR0A, COM0A0); //Set Fast PWM Inverting Mode
-  SET_BIT(TCCR0A, COM0A1);
-  SET_BIT(TCCR0B, CS01); // Set prescaler 64 and run timer
-  SET_BIT(TCCR0B, CS02);
+  SET_BIT(TCCR0B, CS02); // Set prescaler 1024 and run timer
+  CLEAR_BIT(TCCR0B, CS01);
+  SET_BIT(TCCR0B, CS00);
+  OCR0A=40;
 }
 
-void init_pwm_sound()
+void init_uart()
 {
-  SET_BIT(DDRD, DDD6);
-  SET_BIT(TCCR0A, WGM00); // Configure Fast PWM Waveform Generation Mode
-  SET_BIT(TCCR0A, WGM01); // Top=0xFF, Update at BOTTOM
-  CLEAR_BIT(TCCR0B, WGM02);
-  SET_BIT(TCCR0A, COM0B0); //Set Fast PWM Inverting Mode
-  SET_BIT(TCCR0A, COM0B1);
-}
-
-void init_display()
-{
-
+  UBRR0L = (F_CPU/BAUDRATE/16)-1;
+  UBRR0H = ((F_CPU/BAUDRATE/16)-1)>>8;
+  UCSR0C = (1<<USBS0)|(3<<UCSZ00);// Set frame format: 8data, 2stop bit
+  UCSR0B = (1<<RXEN0)|(1<<TXEN0);
 }
 
 /* ----------------------------------------------------------------------------
 ------------------------------- END OF INIT BLOCK -----------------------------
 ---------------------------------------------------------------------------- */
 
-float do_adc_convertion()
+void uart_send_symbol(unsigned char data)
 {
-  const uint8_t voltage_reference = 5;
-  SET_BIT(ADCSRA, ADSC); //start conversion
-  while(IS_TRUE_BIT(ADCSRA, ADSC)){} //wait for conversion is completed
-  uint16_t conversion_result = 0;
-  conversion_result = ADCL; //read low byte, then high
-  conversion_result |=  (ADCH<<8);
-  float voltage_in = (conversion_result*voltage_reference)/1024;
-  return voltage_in*vol_to_temp;
+  //while ( !(UCSR0A & (1 << RXC0)) ) // Wait until data is received
+  ///ReceivedChar = UDR0; // Read the data from the RX buffer
+  while ( !(UCSR0A & (1 << UDRE0)) ); // Wait until buffer is empty
+  UDR0 = data; // Send the data to the TX buffer
 }
 
-void start_pwm_duty(uint8_t duty)
+void uart_send_string(char *str)
 {
-  OCR0A=duty;
+	while (*str != '\0')
+	{
+		uart_send_symbol(*str);
+		++str;
+	}
+}
+
+uint8_t uart_recieve_symbol()
+{
+  while ( !(UCSR0A & (1 << RXC0)) ); // Wait until data is received
+  UART_SYMBOL_BUFFER = UDR0; // Read the data from the RX buffer
+  return UART_SYMBOL_BUFFER;
 }
 
 void do_encoder_scan()
@@ -136,25 +101,5 @@ void do_encoder_scan()
       break;
     default:
       break;
-  }
-}
-
-void pwm_control()
-{
-  current_temp = do_adc_convertion();
-  int16_t err_value = pid_Controller(set_temp, current_temp, REGULATOR_DATA);
-  if (err_value<=0) start_pwm_duty(0x00);
-  else start_pwm_duty((err_value*256)/1024); //conversion to uint8_t
-  if (is_heated_first_time)
-  {
-    if (current_temp==set_temp);
-    is_heated_first_time=0;
-    SOUND_ON;
-    _delay_ms(200);
-    SOUND_OFF;
-    _delay_ms(100);
-    SOUND_ON;
-    _delay_ms(200);
-    SOUND_OFF;
   }
 }

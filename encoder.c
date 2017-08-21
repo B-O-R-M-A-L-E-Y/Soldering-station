@@ -13,18 +13,18 @@ void init_encoder()
   //direction register
   CLEAR_BIT(ENC_DDR,ENC_PIN_FIRST);
   CLEAR_BIT(ENC_DDR,ENC_PIN_SECOND);
-  //disable pull-up resistor (Hi-Z state)
-  CLEAR_BIT(ENC_PORT,ENC_PIN_FIRST);
-  CLEAR_BIT(ENC_PORT,ENC_PIN_SECOND);
+  //enable pull-up resistor (no Hi-Z state)
+  SET_BIT(ENC_PORT,ENC_PIN_FIRST);
+  SET_BIT(ENC_PORT,ENC_PIN_SECOND);
 }
 
 void check_encoder_state()
 {
-  volatile static uint8_t pins_state;
+  static uint8_t pins_state;
   uint8_t current_state = 0;
   //if on pin detected 1, current encoder state write on 2 last bits
-  if (IS_TRUE_BIT(ENC_PIN,ENC_PIN_FIRST)) SET_BIT(current_state,1);
-  if (IS_TRUE_BIT(ENC_PIN,ENC_PIN_SECOND)) SET_BIT(current_state,2);
+  if (IS_TRUE_BIT(ENC_PIN,ENC_PIN_FIRST)) SET_BIT(current_state,0);
+  if (IS_TRUE_BIT(ENC_PIN,ENC_PIN_SECOND)) SET_BIT(current_state,1);
 
   //return if last 2 bits are same as in current_state
   //(0b00000011 is to make bitmask)
