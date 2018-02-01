@@ -4,7 +4,7 @@ CC = avr-gcc
 OBJCOPY = avr-objcopy
 
 # Задаем из каких файлов собирать проект, можно указать несколько файлов
-SRCS= main.c pid.c encoder.c
+SRCS= main.c encoder.c pid.c T1637_AVR.c
 
 OBJS = $(SRCS:.c=.o)
 
@@ -12,8 +12,8 @@ OBJS = $(SRCS:.c=.o)
 MCU=atmega328p
 
 # Флаги компилятора, при помощи F_CPU определяем частоту на которой будет работать контроллер,
-CFLAGS = -mmcu=$(MCU) -std=c11 -Wall -g -Os -Werror -lm  -mcall-prologues
-LDFLAGS = -mmcu=$(MCU)  -Wall -g -Os  -Werror
+CFLAGS = -mmcu=$(MCU) -Wall -std=c99 -Werror -Os -lm  -mcall-prologues
+LDFLAGS = -mmcu=$(MCU)  -Wall -g -Werror
 
 all: $(TARG)
 
@@ -26,7 +26,7 @@ $(TARG): $(OBJS)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 flash:
-	avrdude -b 19200 -c avrisp -p m328p -P /dev/ttyUSB0 -U flash:w:main.hex
+	avrdude -c usbasp -p m328p -P /dev/ttyUSB0 -U flash:w:main.hex
 
 clean:
 	rm -f *.elf *.bin *.hex  $(OBJS) *.map
